@@ -11,7 +11,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 class GitHubItem:
-    def __init__(self, title, url, description, submitter, tags, assignees, reviewers, created_at, comments, review_comments):
+    def __init__(self, title, url, description, submitter, tags, assignees, reviewers, created_at, comments, review_comments, state):
         self.title = title
         self.url = url
         self.description = description
@@ -22,6 +22,7 @@ class GitHubItem:
         self.created_at = created_at
         self.comments = comments
         self.review_comments = review_comments
+        self.state = state
 
 def get_all_items(repo, start_date, end_date, db):
     items = []
@@ -123,6 +124,7 @@ def process_item(repo, item, db, items):
     tags = [label.name for label in item.labels]
     assignees = [assignee.login for assignee in item.assignees]
     reviewers = []
+    state = item.state
 
     if '/pull/' in item.html_url:  # To distinguish pull requests by URL pattern
         reviewers = list(set([review.user.login for review in pr.get_reviews() if review.user]))
@@ -139,7 +141,8 @@ def process_item(repo, item, db, items):
         reviewers,
         created_at,
         comments,
-        review_comments
+        review_comments,
+        state
     )
     items.append(github_item)
     db[str(item.number)] = github_item
@@ -203,7 +206,7 @@ def print_items(items):
     Print the filtered GitHub items to stdout.
     """
     for item in items:
-        print(f"Title: {item.title}\nURL: {item.url}\nDescription: {item.description}\nSubmitter: {item.submitter}\nTags: {', '.join(item.tags)}\nAssignees: {', '.join(item.assignees)}\nReviewers: {', '.join(item.reviewers)}\nCreated At: {item.created_at}\nComments: {len(item.comments)}\nReview Comments: {len(item.review_comments)}")
+        print(f"Title: {item.title}\nURL: {item.url}\nDescription: {item.description}\nSubmitter: {item.submitter}\nTags: {', '.join(item.tags)}\nAssignees: {', '.join(item.assignees)}\nReviewers: {', '.join(item.reviewers)}\nCreated At: {item.created_at}\nState: {item.state}\nComments: {len(item.comments)}\nReview Comments: {len(item.review_comments)}")
         for comment in item.comments:
             print(f"- Comment by {comment['author']} (Created at {comment['created_at']}): {comment['body']}")
         for review_comment in item.review_comments:
