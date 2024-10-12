@@ -217,11 +217,12 @@ def main():
     parser = argparse.ArgumentParser(description="Fetch, filter, and display GitHub issues and pull requests for a specified repository.")
     parser.add_argument("--owner", type=str, default="pytorch", help="Owner of the GitHub repository")
     parser.add_argument("--repo", type=str, default="pytorch", help="Name of the GitHub repository")
-    parser.add_argument("--start_date", type=str, default=datetime.utcnow().strftime("%Y-%m-%d"), help="Start date for fetching and filtering issues and PRs (YYYY-MM-DD format)")
-    parser.add_argument("--end_date", type=str, default=datetime.utcnow().strftime("%Y-%m-%d"), help="End date for fetching and filtering issues and PRs (YYYY-MM-DD format)")
-    parser.add_argument("--db_path", type=str, default=None, help="Path to the database folder")
-    parser.add_argument("--specified_user", type=str, default="", help="User to look for in comments (default: no filtering)")
-    parser.add_argument("--log_level", type=str, default="WARNING", help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
+    parser.add_argument("--start-date", type=str, default=datetime.utcnow().strftime("%Y-%m-%d"), help="Start date for fetching and filtering issues and PRs (YYYY-MM-DD format)")
+    parser.add_argument("--end-date", type=str, default=datetime.utcnow().strftime("%Y-%m-%d"), help="End date for fetching and filtering issues and PRs (YYYY-MM-DD format)")
+    parser.add_argument("--db-path", type=str, default=None, help="Path to the database folder")
+    parser.add_argument("--specified-user", type=str, default="", help="User to look for in comments (default: no filtering)")
+    parser.add_argument("--log-level", type=str, default="WARNING", help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
+    parser.add_argument("--retrieve-only", action="store_true", help="Retrieve data only without filtering or dumping information")
     args = parser.parse_args()
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING), format='%(asctime)s - %(levelname)s - %(message)s')
@@ -253,19 +254,20 @@ def main():
             # Load items from the database
             items = list(db.values())
 
-        # Define filtering rules
-        rules = {
-            'start_date': filter_start_date,
-            'end_date': filter_end_date,
-            'specified_user': args.specified_user
-        }
+        if not args.retrieve_only:
+            # Define filtering rules
+            rules = {
+                'start_date': filter_start_date,
+                'end_date': filter_end_date,
+                'specified_user': args.specified_user
+            }
 
-        # Filter items according to the rules
-        filtered_items = filter_items(items, rules)
+            # Filter items according to the rules
+            filtered_items = filter_items(items, rules)
 
-        # Print filtered items
-        logger.info("Filtered GitHub Items:")
-        print_items(filtered_items)
+            # Print filtered items
+            logger.info("Filtered GitHub Items:")
+            print_items(filtered_items)
 
 if __name__ == "__main__":
     main()
