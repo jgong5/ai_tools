@@ -82,7 +82,7 @@ def update_with_new_comment(db, item_id, comment, is_review):
     if any(c["created_at"] == new_comment["created_at"] and c["author"] == new_comment["author"] for c in existing_comments):
         print(f"Comment by {new_comment['author']} on {new_comment['created_at']} already exists, skipping.")
         return
-    
+
     if is_review:
         github_item.review_comments.append(new_comment)
     else:
@@ -141,14 +141,80 @@ def process_item(repo, item, db, items):
     items.append(github_item)
     db[str(item.number)] = github_item
 
-# Example usage
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fetch GitHub issues and pull requests for a specified repository.")
+def load_db(db_path):
+    """
+    Load the GitHub items from the database.
+    """
+    with shelve.open(db_path) as db:
+        items = list(db.values())
+    return items
+
+def filter_items(items, rules):
+    """
+    Apply filtering rules to the list of GitHub items.
+    """
+    filtered_items = []
+    for item in items:
+        if apply_rules(item, rules):
+            filtered_items.append(item)
+    return filtered_items
+
+def apply_rules(item, rules):
+    """
+    Check if a GitHub item satisfies the given filtering rules.
+    """
+    # Rule 1: Filter by start and end dates
+    created_at = datetime.fromisoformat(item.created_at.replace('Z', '+00:00')).replace(tzinfo=None)
+    comment_dates = [datetime.fromisoformat(comment['created_at'].replace('Z', '+00:00')).replace(tzinfo=None) for comment in item.comments + item.review_comments]
+    all_dates = [created_at] + comment_dates
+    if not any(rules['start_date'] <= date <= rules['end_date'] for date in all_dates):
+        print(f"Filtering out '{item.title}' because neither its creation time nor any comment time is within the date range.")
+        return False
+
+    # Rule 2: Comments containing tags of the specified user
+    specified_user = rules.get('specified_user', '')
+    if specified_user and not any(specified_user in comment['body'] for comment in item.comments + item.review_comments):
+        print(f"Filtering out '{item.title}' because it does not contain a comment tagging the user '{specified_user}'.")
+        return False
+
+    # Rule 3: Ignore titles starting with "DISABLED"
+    if item.title.startswith("DISABLED"):
+        print(f"Filtering out '{item.title}' because the title starts with 'DISABLED'.")
+        return False
+
+    # Rule 4: Ignore comments tagging or created by specific bots
+    ignored_authors = {"pytorchmergebot", "pytorch-bot", "facebook-github-bot"}
+    item.comments = [comment for comment in item.comments if comment['author'] not in ignored_authors]
+    item.review_comments = [review_comment for review_comment in item.review_comments if review_comment['author'] not in ignored_authors]
+
+    # Rule 5: Filter out items if all comments within the specified date range are created by ignored authors
+    filtered_comments = [comment for comment in item.comments + item.review_comments if rules['start_date'] <= datetime.fromisoformat(comment['created_at'].replace('Z', '+00:00')).replace(tzinfo=None) <= rules['end_date']]
+    if filtered_comments and all(comment['author'] in ignored_authors for comment in filtered_comments):
+        print(f"Filtering out '{item.title}' because all comments within the specified date range are created by ignored authors.")
+        return False
+
+    return True
+
+def print_items(items):
+    """
+    Print the filtered GitHub items to stdout.
+    """
+    for item in items:
+        print(f"Title: {item.title}\nURL: {item.url}\nDescription: {item.description[:100]}...\nSubmitter: {item.submitter}\nTags: {', '.join(item.tags)}\nAssignees: {', '.join(item.assignees)}\nReviewers: {', '.join(item.reviewers)}\nCreated At: {item.created_at}\nComments: {len(item.comments)}\nReview Comments: {len(item.review_comments)}")
+        for comment in item.comments:
+            print(f"- Comment by {comment['author']} (Created at {comment['created_at']}): {comment['body'][:100]}...")
+        for review_comment in item.review_comments:
+            print(f"- Review Comment by {review_comment['author']} (Created at {review_comment['created_at']}): {review_comment['body'][:100]}...")
+        print()
+
+def main():
+    parser = argparse.ArgumentParser(description="Fetch, filter, and display GitHub issues and pull requests for a specified repository.")
     parser.add_argument("--owner", type=str, default="pytorch", help="Owner of the GitHub repository")
     parser.add_argument("--repo", type=str, default="pytorch", help="Name of the GitHub repository")
-    parser.add_argument("--start_date", type=str, default=datetime.utcnow().strftime("%Y-%m-%d"), help="Start date for fetching issues and PRs (YYYYMMDD format)")
-    parser.add_argument("--end_date", type=str, default=datetime.utcnow().strftime("%Y-%m-%d"), help="End date for fetching issues and PRs (YYYYMMDD format)")
+    parser.add_argument("--start_date", type=str, default=datetime.utcnow().strftime("%Y-%m-%d"), help="Start date for fetching and filtering issues and PRs (YYYY-MM-DD format)")
+    parser.add_argument("--end_date", type=str, default=datetime.utcnow().strftime("%Y-%m-%d"), help="End date for fetching and filtering issues and PRs (YYYY-MM-DD format)")
     parser.add_argument("--db_path", type=str, default=None, help="Path to the database folder")
+    parser.add_argument("--specified_user", type=str, default="", help="User to look for in comments (default: no filtering)")
     args = parser.parse_args()
 
     if not args.db_path:
@@ -159,6 +225,10 @@ if __name__ == "__main__":
     token = os.getenv("GITHUB_TOKEN")
     start_date = args.start_date + "T00:00:00Z"
     end_date = args.end_date + "T23:59:59Z"
+
+    # Parse start and end dates for filtering
+    filter_start_date = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=None)
+    filter_end_date = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=None)
 
     if not token:
         print("Error: GitHub token not found in environment variables.")
@@ -171,13 +241,22 @@ if __name__ == "__main__":
             new_items = get_all_items(repo, start_date, end_date, db)
             updated_items = get_updated_items(repo, start_date, db)
 
-            items = new_items + updated_items
+            # Load items from the database
+            items = list(db.values())
 
-            print("Filtered GitHub Items:")
-            for item in items:
-                print(f"Title: {item.title}\nURL: {item.url}\nDescription: {item.description[:100]}...\nSubmitter: {item.submitter}\nTags: {', '.join(item.tags)}\nAssignees: {', '.join(item.assignees)}\nReviewers: {', '.join(item.reviewers)}\nCreated At: {item.created_at}\nComments: {len(item.comments)}\nReview Comments: {len(item.review_comments)}")
-                for comment in item.comments:
-                    print(f"- Comment by {comment['author']} (Created at {comment['created_at']}): {comment['body'][:100]}...")
-                for review_comment in item.review_comments:
-                    print(f"- Review Comment by {review_comment['author']} (Created at {review_comment['created_at']}): {review_comment['body'][:100]}...")
-                print()
+        # Define filtering rules
+        rules = {
+            'start_date': filter_start_date,
+            'end_date': filter_end_date,
+            'specified_user': args.specified_user
+        }
+
+        # Filter items according to the rules
+        filtered_items = filter_items(items, rules)
+
+        # Print filtered items
+        print("Filtered GitHub Items:")
+        print_items(filtered_items)
+
+if __name__ == "__main__":
+    main()
