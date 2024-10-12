@@ -201,16 +201,17 @@ def apply_rules(item, rules):
 
     return True
 
-def print_items(items):
+def print_items(items, dump_comments=False):
     """
     Print the filtered GitHub items to stdout.
     """
     for item in items:
         print(f"Title: {item.title}\nURL: {item.url}\nDescription: {item.description}\nSubmitter: {item.submitter}\nTags: {', '.join(item.tags)}\nAssignees: {', '.join(item.assignees)}\nReviewers: {', '.join(item.reviewers)}\nCreated At: {item.created_at}\nState: {item.state}\nComments: {len(item.comments)}\nReview Comments: {len(item.review_comments)}")
-        for comment in item.comments:
-            print(f"- Comment by {comment['author']} (Created at {comment['created_at']}): {comment['body']}")
-        for review_comment in item.review_comments:
-            print(f"- Review Comment by {review_comment['author']} (Created at {review_comment['created_at']}): {review_comment['body']}")
+        if dump_comments:
+            for comment in item.comments:
+                print(f"- Comment by {comment['author']} (Created at {comment['created_at']}): {comment['body']}")
+            for review_comment in item.review_comments:
+                print(f"- Review Comment by {review_comment['author']} (Created at {review_comment['created_at']}): {review_comment['body']}")
         print()
 
 def main():
@@ -223,6 +224,7 @@ def main():
     parser.add_argument("--specified-user", type=str, default="", help="User to look for in comments (default: no filtering)")
     parser.add_argument("--log-level", type=str, default="WARNING", help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
     parser.add_argument("--retrieve-only", action="store_true", help="Retrieve data only without filtering or dumping information")
+    parser.add_argument("--dump-comments", action="store_true", help="Dump detailed comments and review comments for each item")
     args = parser.parse_args()
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING), format='%(asctime)s - %(levelname)s - %(message)s')
