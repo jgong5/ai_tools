@@ -85,6 +85,7 @@ def main():
     # Command line arguments
     parser = argparse.ArgumentParser(description="Chunk-based text summarization script.")
     parser.add_argument('--max-chunk-tokens', type=int, default=2000, help="Maximum tokens per chunk.")
+    parser.add_argument('--second-level-max-chunk-tokens', type=int, help="Maximum tokens per chunk for second-level summarization, defaults to first-level max chunk tokens.")
     parser.add_argument('--overlap-tokens', type=int, default=200, help="Number of overlapping tokens between chunks.")
     parser.add_argument('--max-summary-tokens', type=int, help="Maximum tokens per summary.")
     parser.add_argument('--prompt-instructions', type=str, default="Please provide a concise summary of the following text.", help="Prompt instructions for the summarization model.")
@@ -92,10 +93,12 @@ def main():
     parser.add_argument('--second-level-prompt', type=str, help="Prompt instructions for the second-level summarization.")
     parser.add_argument('--base-url', type=str, default="https://api.deepseek.com", help="Base URL for the API endpoint.")
     parser.add_argument('--output-file', type=str, default='final_summary.txt', help="Output file name for the final summary.")
+    parser.add_argument('--dump-combined-summary', type=str, help="File name to dump the combined summary before second-level summarization.")
     args = parser.parse_args()
 
     # Parameters
     max_chunk_tokens = args.max_chunk_tokens           # Adjust based on the model's token limit
+    second_level_max_chunk_tokens = args.second_level_max_chunk_tokens if args.second_level_max_chunk_tokens else max_chunk_tokens # Max chunk tokens for second-level summarization
     overlap_tokens = args.overlap_tokens               # Number of overlapping tokens between chunks
     max_summary_tokens = args.max_summary_tokens       # Max tokens for each chunk summary
     prompt_instructions = args.prompt_instructions     # Instructions for the summarization
@@ -103,6 +106,7 @@ def main():
     second_level_prompt = args.second_level_prompt if args.second_level_prompt else prompt_instructions # Second-level prompt instructions
     base_url = args.base_url                           # API base URL
     output_file = args.output_file                     # Output file name for the final summary
+    dump_combined_summary = args.dump_combined_summary # File name to dump the combined summary
 
     # Set up OpenAI API key
     print("Loading OpenAI API key from environment...")
@@ -129,12 +133,18 @@ def main():
     combined_summary = ' '.join(summaries)
     print("Combined all chunk summaries.")
 
+    # Dump the combined summary if specified
+    if dump_combined_summary:
+        with open(dump_combined_summary, 'w', encoding='utf-8') as file:
+            print(f"Dumping the combined summary to '{dump_combined_summary}'...")
+            file.write(combined_summary)
+
     # Optional: Second-level summarization
     if second_level_summarization:
         print("\nPerforming second-level summarization...\n")
-        if count_tokens(combined_summary) > max_chunk_tokens:
+        if count_tokens(combined_summary) > second_level_max_chunk_tokens:
             print("Combined summary exceeds max chunk tokens, splitting into smaller chunks...")
-            combined_chunks = split_text_into_chunks(combined_summary, max_chunk_tokens, overlap_tokens)
+            combined_chunks = split_text_into_chunks(combined_summary, second_level_max_chunk_tokens, overlap_tokens)
             combined_summaries = []
             for i, chunk in enumerate(combined_chunks):
                 print(f"Summarizing combined chunk {i+1}/{len(combined_chunks)}...")
