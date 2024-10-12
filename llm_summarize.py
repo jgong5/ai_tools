@@ -66,7 +66,7 @@ def summarize_chunk(client, chunk, prompt_instructions="", max_summary_tokens=No
     Summarizes a text chunk using OpenAI's GPT-3.5 Turbo model.
     """
     print(f"Summarizing chunk: {chunk[:50]}...")
-    prompt = f"{prompt_instructions}\n\nText:\n{chunk}\n\nSummary:"
+    prompt = f"{prompt_instructions}\n\nText:\n{chunk}\n\n"
     try:
         response = client.chat.completions.create(
             model='deepseek-chat',  # You can switch to 'gpt-4' if you have access
@@ -91,6 +91,7 @@ def main():
     parser.add_argument('--second-level-summarization', type=bool, default=True, help="Whether to perform a second-level summarization.")
     parser.add_argument('--second-level-prompt', type=str, help="Prompt instructions for the second-level summarization.")
     parser.add_argument('--base-url', type=str, default="https://api.deepseek.com", help="Base URL for the API endpoint.")
+    parser.add_argument('--output-file', type=str, default='final_summary.txt', help="Output file name for the final summary.")
     args = parser.parse_args()
 
     # Parameters
@@ -101,6 +102,7 @@ def main():
     second_level_summarization = args.second_level_summarization # Set to False if you don't want a second-level summary
     second_level_prompt = args.second_level_prompt if args.second_level_prompt else prompt_instructions # Second-level prompt instructions
     base_url = args.base_url                           # API base URL
+    output_file = args.output_file                     # Output file name for the final summary
 
     # Set up OpenAI API key
     print("Loading OpenAI API key from environment...")
@@ -130,7 +132,17 @@ def main():
     # Optional: Second-level summarization
     if second_level_summarization:
         print("\nPerforming second-level summarization...\n")
-        final_summary = summarize_chunk(client, combined_summary, second_level_prompt, max_summary_tokens)
+        if count_tokens(combined_summary) > max_chunk_tokens:
+            print("Combined summary exceeds max chunk tokens, splitting into smaller chunks...")
+            combined_chunks = split_text_into_chunks(combined_summary, max_chunk_tokens, overlap_tokens)
+            combined_summaries = []
+            for i, chunk in enumerate(combined_chunks):
+                print(f"Summarizing combined chunk {i+1}/{len(combined_chunks)}...")
+                summary = summarize_chunk(client, chunk, second_level_prompt, max_summary_tokens)
+                combined_summaries.append(summary)
+            final_summary = ' '.join(combined_summaries)
+        else:
+            final_summary = summarize_chunk(client, combined_summary, second_level_prompt, max_summary_tokens)
     else:
         final_summary = combined_summary
 
@@ -139,8 +151,8 @@ def main():
     print(final_summary)
 
     # Save the summary to a file
-    with open('final_summary.txt', 'w', encoding='utf-8') as file:
-        print("Saving the final summary to 'final_summary.txt'...")
+    with open(output_file, 'w', encoding='utf-8') as file:
+        print(f"Saving the final summary to '{output_file}'...")
         file.write(final_summary)
 
 if __name__ == '__main__':
