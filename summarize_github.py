@@ -225,6 +225,8 @@ def main():
     parser.add_argument("--log-level", type=str, default="WARNING", help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
     parser.add_argument("--retrieve-only", action="store_true", help="Retrieve data only without filtering or dumping information")
     parser.add_argument("--dump-comments", action="store_true", help="Dump detailed comments and review comments for each item")
+    parser.add_argument("--only-issues", action="store_true", help="Dump only issues (default: dump both issues and PRs)")
+    parser.add_argument("--only-prs", action="store_true", help="Dump only pull requests (default: dump both issues and PRs)")
     args = parser.parse_args()
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING), format='%(asctime)s - %(levelname)s - %(message)s')
@@ -263,6 +265,12 @@ def main():
                 'end_date': filter_end_date,
                 'specified_user': args.specified_user
             }
+
+            # Apply PR or issue only filters
+            if args.only_issues:
+                items = [item for item in items if '/pull/' not in item.url]
+            elif args.only_prs:
+                items = [item for item in items if '/pull/' in item.url]
 
             # Filter items according to the rules
             filtered_items = filter_items(items, rules)
