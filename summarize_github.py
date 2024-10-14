@@ -269,7 +269,7 @@ def main():
 
             # Print filtered items
             logger.info("Filtered GitHub Items:")
-            print_items(filtered_items)
+            print_items(filtered_items, dump_comments=args.dump_comments)
 
 if __name__ == "__main__":
     main()
