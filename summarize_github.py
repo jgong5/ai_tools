@@ -13,6 +13,56 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+def count_tokens(text, encoding_name='gpt2'):
+    """
+    Counts the number of tokens in a text string using the specified encoding.
+    """
+    logger.info(f"Counting tokens for text: {text[:50]}...")
+    encoding = tiktoken.get_encoding(encoding_name)
+    tokens = encoding.encode(text)
+    logger.info(f"Token count: {len(tokens)}")
+    return len(tokens)
+
+def summarize_chunk(client, chunk, prompt_instructions="", max_summary_tokens=None):
+    logger.info(f"Summarizing chunk: {chunk[:50]}...")
+    prompt = f"{prompt_instructions}{chunk}"
+    try:
+        response = client.chat.completions.create(
+            model='deepseek-chat',  # You can switch to 'gpt-4' if you have access
+            messages=[{'role': 'user', 'content': prompt}],
+            max_tokens=max_summary_tokens,
+            temperature=0.7,
+        )
+        summary = response.choices[0].message.content.strip()
+        logger.info(f"Summary generated: {summary[:50]}...")
+        return summary
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
+        return ""
+
+def text_summarize(text_chunks, instruction=None, context=None, separator="\n"):
+    client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'), base_url="https://api.deepseek.com")
+    if instruction is None:
+        instruction = "Summarize the text below:\n\n"
+    max_tokens = 120000
+    insturction_num_tokens = count_tokens(instruction)
+    chunk_num_tokens = [count_tokens(chunk) for chunk in text_chunks]
+    end_id = 0
+    summaries = []
+    while end_id < len(chunk_num_tokens):
+        num_tokens = insturction_num_tokens
+        start_id = end_id
+        while num_tokens < max_tokens and end_id < len(chunk_num_tokens):
+            num_tokens += chunk_num_tokens[end_id]
+            end_id += 1
+        assert end_id > start_id
+        if start_id == end_id - 1:
+            raise ValueError(f"Chunk {start_id} is too large to fit in the max_tokens limit.")
+        concat_text = separator.join(text_chunks[start_id:end_id])
+        summary = summarize_chunk(client, concat_text, instruction)
+        summaries.append(summary)
+    return summaries
+
 class GitHubItem:
     def __init__(self, title, url, description, submitter, tags, assignees, reviewers, created_at, comments, review_comments, state):
         self.title = title
@@ -27,93 +77,32 @@ class GitHubItem:
         self.review_comments = review_comments
         self.state = state
 
-def count_tokens(text, encoding_name='gpt2'):
-    """
-    Counts the number of tokens in a text string using the specified encoding.
-    """
-    logger.info(f"Counting tokens for text: {text[:50]}...")
-    encoding = tiktoken.get_encoding(encoding_name)
-    tokens = encoding.encode(text)
-    logger.info(f"Token count: {len(tokens)}")
-    return len(tokens)
-
-def split_text_into_chunks(text, max_tokens, overlap_tokens):
-    """
-    Splits text into chunks of approximately max_tokens tokens, with overlap.
-    """
-    logger.info("Splitting text into chunks...")
-    nltk.download('punkt', quiet=True)
-    sentences = nltk.sent_tokenize(text)
-    chunks = []
-    current_chunk = ''
-    current_tokens = 0
-    overlap = []
-    overlap_token_count = 0
-
-    for sentence in sentences:
-        token_count = count_tokens(sentence)
-        if current_tokens + token_count <= max_tokens:
-            current_chunk += ' ' + sentence
-            current_tokens += token_count
-        else:
-            if current_chunk:
-                chunks.append(current_chunk.strip())
-                logger.info(f"Created chunk of length {current_tokens} tokens.")
-            current_chunk = ' '.join(overlap) + ' ' + sentence
-            current_tokens = overlap_token_count + token_count
-            overlap = []
-
-        # Maintain overlap
-        overlap.append(sentence)
-        overlap_token_count = count_tokens(' '.join(overlap))
-        while overlap_token_count > overlap_tokens:
-            overlap.pop(0)
-            overlap_token_count = count_tokens(' '.join(overlap))
-
-    if current_chunk:
-        chunks.append(current_chunk.strip())
-        logger.info(f"Created final chunk of length {current_tokens} tokens.")
-
-    logger.info(f"Total number of chunks: {len(chunks)}")
-    return chunks
-
-def summarize_chunk(client, chunk, prompt_instructions="", max_summary_tokens=None):
-    """
-    Summarizes a text chunk using OpenAI's GPT-3.5 Turbo model.
-    """
-    logger.info(f"Summarizing chunk: {chunk[:50]}...")
-    prompt = f"{prompt_instructions}\n\nText:\n{chunk}\n\n"
-    try:
-        response = client.ChatCompletion.create(
-            model='gpt-3.5-turbo',
-            messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=max_summary_tokens,
-            temperature=0.7,
+    def __str__(self):
+        return (
+            f"Title: {self.title}\n"
+            f"URL: {self.url}\n"
+            f"Description: {self.description}\n"
+            f"Submitter: {self.submitter}\n"
+            f"Tags: {', '.join(self.tags)}\n"
+            f"Assignees: {', '.join(self.assignees)}\n"
+            f"Reviewers: {', '.join(self.reviewers)}\n"
+            f"Created At: {self.created_at}\n"
+            f"State: {self.state}\n"
+            f"Comments: {len(self.comments)}\n"
+            f"Review Comments: {len(self.review_comments)}"
         )
-        summary = response['choices'][0]['message']['content'].strip()
-        logger.info(f"Summary generated: {summary[:50]}...")
-        return summary
-    except Exception as e:
-        logger.error(f"An error occurred: {e}")
-        return ""
 
-def summarize_text(text, max_chunk_tokens=2000, overlap_tokens=200, max_summary_tokens=200, prompt_instructions="Please provide a concise summary of the following text."):
-    """
-    Summarizes the given text using chunk-based summarization with overlap.
-    """
-    client = openai
-    client.api_key = os.getenv('OPENAI_API_KEY')
-
-    chunks = split_text_into_chunks(text, max_chunk_tokens, overlap_tokens)
-    summaries = []
-    for i, chunk in enumerate(chunks):
-        logger.info(f"Summarizing chunk {i + 1}/{len(chunks)}...")
-        summary = summarize_chunk(client, chunk, prompt_instructions, max_summary_tokens)
-        summaries.append(summary)
-
-    combined_summary = ' '.join(summaries)
-    logger.info("Combined all chunk summaries.")
-    return combined_summary
+    def full_str(self, need_comments=True):
+        if need_comments:
+            comments_str = "\n".join(
+                [f"- Comment by {comment['author']} (Created at {comment['created_at']}): {comment['body']}" for comment in self.comments]
+            )
+            review_comments_str = "\n".join(
+                [f"- Review Comment by {review_comment['author']} (Created at {review_comment['created_at']}): {review_comment['body']}" for review_comment in self.review_comments]
+            )
+            return "\n".join([str(self), comments_str, review_comments_str])
+        else:
+            return str(self)
 
 def refresh_items(repo, start_date, end_date, db):
     start_date_dt = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
@@ -300,12 +289,7 @@ def print_items(items, dump_comments=False):
     Print the filtered GitHub items to stdout.
     """
     for item in items:
-        print(f"Title: {item.title}\nURL: {item.url}\nDescription: {item.description}\nSubmitter: {item.submitter}\nTags: {', '.join(item.tags)}\nAssignees: {', '.join(item.assignees)}\nReviewers: {', '.join(item.reviewers)}\nCreated At: {item.created_at}\nState: {item.state}\nComments: {len(item.comments)}\nReview Comments: {len(item.review_comments)}")
-        if dump_comments:
-            for comment in item.comments:
-                print(f"- Comment by {comment['author']} (Created at {comment['created_at']}): {comment['body']}")
-            for review_comment in item.review_comments:
-                print(f"- Review Comment by {review_comment['author']} (Created at {review_comment['created_at']}): {review_comment['body']}")
+        print(item.full_str(need_comments=dump_comments))
         print()
 
 def main():
@@ -372,6 +356,18 @@ def main():
             # Print filtered items
             logger.info("Filtered GitHub Items:")
             print_items(filtered_items, dump_comments=args.dump_comments)
+
+            instruction = """
+Please help summarize this document, categorize the mentioned content by Issue and PR,
+and then further categorize within each Issue and PR based on the discussion content.
+Each Issue or PR should include Title/URL/State/Submitter, and also include a brief Description,
+without omitting any Issues or PRs. \n\n
+"""
+            summaries = text_summarize([item.full_str(need_comments=args.dump_comments) for item in filtered_items], instruction=instruction)
+            logger.info("Summary of filtered GitHub Items:")
+            for summary in summaries:
+                print(summary)
+                print()
 
 if __name__ == "__main__":
     main()
