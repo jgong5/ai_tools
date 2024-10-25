@@ -5,6 +5,9 @@ import argparse
 import shelve
 import logging
 from dotenv import load_dotenv
+import openai
+import nltk
+import tiktoken
 
 load_dotenv()
 
@@ -24,8 +27,95 @@ class GitHubItem:
         self.review_comments = review_comments
         self.state = state
 
-def get_all_items(repo, start_date, end_date, db):
-    items = []
+def count_tokens(text, encoding_name='gpt2'):
+    """
+    Counts the number of tokens in a text string using the specified encoding.
+    """
+    logger.info(f"Counting tokens for text: {text[:50]}...")
+    encoding = tiktoken.get_encoding(encoding_name)
+    tokens = encoding.encode(text)
+    logger.info(f"Token count: {len(tokens)}")
+    return len(tokens)
+
+def split_text_into_chunks(text, max_tokens, overlap_tokens):
+    """
+    Splits text into chunks of approximately max_tokens tokens, with overlap.
+    """
+    logger.info("Splitting text into chunks...")
+    nltk.download('punkt', quiet=True)
+    sentences = nltk.sent_tokenize(text)
+    chunks = []
+    current_chunk = ''
+    current_tokens = 0
+    overlap = []
+    overlap_token_count = 0
+
+    for sentence in sentences:
+        token_count = count_tokens(sentence)
+        if current_tokens + token_count <= max_tokens:
+            current_chunk += ' ' + sentence
+            current_tokens += token_count
+        else:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+                logger.info(f"Created chunk of length {current_tokens} tokens.")
+            current_chunk = ' '.join(overlap) + ' ' + sentence
+            current_tokens = overlap_token_count + token_count
+            overlap = []
+
+        # Maintain overlap
+        overlap.append(sentence)
+        overlap_token_count = count_tokens(' '.join(overlap))
+        while overlap_token_count > overlap_tokens:
+            overlap.pop(0)
+            overlap_token_count = count_tokens(' '.join(overlap))
+
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+        logger.info(f"Created final chunk of length {current_tokens} tokens.")
+
+    logger.info(f"Total number of chunks: {len(chunks)}")
+    return chunks
+
+def summarize_chunk(client, chunk, prompt_instructions="", max_summary_tokens=None):
+    """
+    Summarizes a text chunk using OpenAI's GPT-3.5 Turbo model.
+    """
+    logger.info(f"Summarizing chunk: {chunk[:50]}...")
+    prompt = f"{prompt_instructions}\n\nText:\n{chunk}\n\n"
+    try:
+        response = client.ChatCompletion.create(
+            model='gpt-3.5-turbo',
+            messages=[{'role': 'user', 'content': prompt}],
+            max_tokens=max_summary_tokens,
+            temperature=0.7,
+        )
+        summary = response['choices'][0]['message']['content'].strip()
+        logger.info(f"Summary generated: {summary[:50]}...")
+        return summary
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
+        return ""
+
+def summarize_text(text, max_chunk_tokens=2000, overlap_tokens=200, max_summary_tokens=200, prompt_instructions="Please provide a concise summary of the following text."):
+    """
+    Summarizes the given text using chunk-based summarization with overlap.
+    """
+    client = openai
+    client.api_key = os.getenv('OPENAI_API_KEY')
+
+    chunks = split_text_into_chunks(text, max_chunk_tokens, overlap_tokens)
+    summaries = []
+    for i, chunk in enumerate(chunks):
+        logger.info(f"Summarizing chunk {i + 1}/{len(chunks)}...")
+        summary = summarize_chunk(client, chunk, prompt_instructions, max_summary_tokens)
+        summaries.append(summary)
+
+    combined_summary = ' '.join(summaries)
+    logger.info("Combined all chunk summaries.")
+    return combined_summary
+
+def refresh_items(repo, start_date, end_date, db):
     start_date_dt = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
     end_date_dt = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ")
     all_issues = repo.get_issues(state='all', since=start_date_dt)
@@ -34,45 +124,50 @@ def get_all_items(repo, start_date, end_date, db):
             logger.info("Reached items outside of date range. Stopping early.")
             break
         if str(item.number) in db:
-            logger.info(f"Item with ID {item.id} found in database, skipping fetch.")
+            logger.info(f"Item with ID {item.id} found in database, updating fields except comments.")
+            github_item = db[str(item.number)]
+            github_item.title = item.title
+            github_item.description = item.body if item.body else "No description available"
+            github_item.tags = [label.name for label in item.labels]
+            github_item.assignees = [assignee.login for assignee in item.assignees]
+            github_item.reviewers = []
+            github_item.state = item.state
+            # commented out for efficiency
+            # if '/pull/' in item.html_url:  # To distinguish pull requests by URL pattern
+            #     pr = repo.get_pull(item.number)
+            #     github_item.reviewers = list(set([review.user.login for review in pr.get_reviews() if review.user]))
+            db[str(item.number)] = github_item
             continue
-        process_item(repo, item, db, items)
-    return items
+        process_item(repo, item, db)
 
-def get_updated_items(repo, start_date, db):
-    items = []
+def refresh_item_comments(repo, start_date, db):
     start_date_dt = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
     # Fetch issue comments
     for comment in repo.get_issues_comments(since=start_date_dt):
         item_id = comment.issue_url.split('/')[-1]
         if item_id in db:
             update_with_new_comment(db, item_id, comment, is_review=False)
-            items.append(db[str(item_id)])
         else:
             item = repo.get_issue(int(item_id))
-            process_item(repo, item, db, items)
+            process_item(repo, item, db)
 
     # Fetch pull request comments
     for comment in repo.get_pulls_comments(since=start_date_dt):
         item_id = comment.pull_request_url.split('/')[-1]
         if item_id in db:
             update_with_new_comment(db, item_id, comment, is_review=False)
-            items.append(db[item_id])
         else:
             item = repo.get_pull(int(item_id))
-            process_item(repo, item, db, items)
+            process_item(repo, item, db)
 
     # Fetch pull request review comments
     for comment in repo.get_pulls_review_comments(since=start_date_dt):
         item_id = comment.pull_request_url.split('/')[-1]
         if item_id in db:
             update_with_new_comment(db, item_id, comment, is_review=True)
-            items.append(db[item_id])
         else:
             item = repo.get_pull(int(item_id))
-            process_item(repo, item, db, items)
-
-    return items
+            process_item(repo, item, db)
 
 def update_with_new_comment(db, item_id, comment, is_review):
     github_item = db[item_id]
@@ -93,7 +188,7 @@ def update_with_new_comment(db, item_id, comment, is_review):
         github_item.comments.append(new_comment)
     db[item_id] = github_item
 
-def process_item(repo, item, db, items):
+def process_item(repo, item, db):
     logger.info(f"Starting to process item '{item.title}' with ID {item.number}")
     created_at = item.created_at.isoformat()
     comments = []
@@ -144,7 +239,6 @@ def process_item(repo, item, db, items):
         review_comments,
         state
     )
-    items.append(github_item)
     db[str(item.number)] = github_item
 
 def load_db(db_path):
@@ -252,8 +346,8 @@ def main():
 
         with shelve.open(db_path) as db:
             logger.info("Starting to fetch issues and pull requests...")
-            new_items = get_all_items(repo, start_date, end_date, db)
-            updated_items = get_updated_items(repo, start_date, db)
+            refresh_items(repo, start_date, end_date, db)
+            refresh_item_comments(repo, start_date, db)
 
             # Load items from the database
             items = list(db.values())
