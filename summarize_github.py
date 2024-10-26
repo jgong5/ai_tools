@@ -57,9 +57,11 @@ def text_summarize(text_chunks, instruction=None, context=None, separator="\n"):
             end_id += 1
         assert end_id > start_id
         if start_id == end_id - 1:
-            raise ValueError(f"Chunk {start_id} is too large to fit in the max_tokens limit.")
-        concat_text = separator.join(text_chunks[start_id:end_id])
-        summary = summarize_chunk(client, concat_text, instruction)
+            logger.warning(f"Chunk {start_id} is too large to fit in the max_tokens limit.")
+            text = text_chunks[start_id][:max_tokens - insturction_num_tokens]
+        else:
+            text = separator.join(text_chunks[start_id:end_id])
+        summary = summarize_chunk(client, text, instruction)
         summaries.append(summary)
     return summaries
 
@@ -305,6 +307,8 @@ def main():
     parser.add_argument("--dump-comments", action="store_true", help="Dump detailed comments and review comments for each item")
     parser.add_argument("--only-issues", action="store_true", help="Dump only issues (default: dump both issues and PRs)")
     parser.add_argument("--only-prs", action="store_true", help="Dump only pull requests (default: dump both issues and PRs)")
+    parser.add_argument("--print-items", action="store_true", help="Print the filtered GitHub items to stdout")
+    parser.add_argument("--no-summarize", action="store_true", help="Do not summarize the filtered GitHub items")
     args = parser.parse_args()
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING), format='%(asctime)s - %(levelname)s - %(message)s')
@@ -353,21 +357,23 @@ def main():
             # Filter items according to the rules
             filtered_items = filter_items(items, rules)
 
-            # Print filtered items
-            logger.info("Filtered GitHub Items:")
-            print_items(filtered_items, dump_comments=args.dump_comments)
+            if args.print_items:
+                # Print filtered items
+                logger.info("Filtered GitHub Items:")
+                print_items(filtered_items, dump_comments=args.dump_comments)
 
-            instruction = """
-Please help summarize this document, categorize the mentioned content by Issue and PR,
-and then further categorize within each Issue and PR based on the discussion content.
-Each Issue or PR should include Title/URL/State/Submitter, and also include a brief Description,
-without omitting any Issues or PRs. \n\n
-"""
-            summaries = text_summarize([item.full_str(need_comments=args.dump_comments) for item in filtered_items], instruction=instruction)
-            logger.info("Summary of filtered GitHub Items:")
-            for summary in summaries:
-                print(summary)
-                print()
+            if not args.no_summarize:
+                instruction = """
+    Please help summarize this document, categorize the mentioned content by Issue and PR,
+    and then further categorize within each Issue and PR based on the discussion content.
+    Each Issue or PR should include Title/URL/State/Submitter, and also include a brief Description,
+    without omitting any Issues or PRs. \n\n
+    """
+                summaries = text_summarize([item.full_str(need_comments=args.dump_comments) for item in filtered_items], instruction=instruction)
+                logger.info("Summary of filtered GitHub Items:")
+                for summary in summaries:
+                    print(summary)
+                    print()
 
 if __name__ == "__main__":
     main()
