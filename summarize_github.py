@@ -44,7 +44,7 @@ def text_summarize(text_chunks, instruction=None, context=None, separator="\n"):
     client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'), base_url="https://api.deepseek.com")
     if instruction is None:
         instruction = "Summarize the text below:\n\n"
-    max_tokens = 120000
+    max_tokens = 96000
     insturction_num_tokens = count_tokens(instruction)
     chunk_num_tokens = [count_tokens(chunk) for chunk in text_chunks]
     end_id = 0
@@ -364,10 +364,38 @@ def main():
 
             if not args.no_summarize:
                 instruction = """
-    Please help summarize this document, categorize the mentioned content by Issue and PR,
-    and then further categorize within each Issue and PR based on the discussion content.
-    Each Issue or PR should include Title/URL/State/Submitter, and also include a brief Description,
-    without omitting any Issues or PRs. \n\n
+You are provided with a list of GitHub issues and pull requests (PRs), each detailed with specific information in the following format:
+
+---
+Title: [Issue or PR Title]
+URL: [Issue or PR URL]
+Description: [Detailed description]
+Submitter: [Username of the person who submitted]
+Tags: [Relevant tags]
+Assignees: [Assigned users]
+Reviewers: [Reviewers, if any]
+Created At: [Creation date]
+State: [Current state, e.g., open, closed]
+Comments: [Number of comments]
+Review Comments: [Number of review comments]
+Commented by [Username] (created at [Date]): [Comment content]
+...
+---
+
+Please generate a blog-style summary of the following list of GitHub issues and pull requests. The summary should:
+
+- Be concise, be concise, be concise.
+
+- Describe each issue or PR within two sentences. 
+
+- Mention the "URL" when referring to any issue or PR for easy reference.
+
+- Logically group related issues and PRs to enhance readability. Describe the grouped issues and PRs together in a single paragraph.
+
+- Make it more like an article instead of a laundary list. DO NOT make a list.
+
+Below is the detailed information:
+
     """
                 summaries = text_summarize([item.full_str(need_comments=args.dump_comments) for item in filtered_items], instruction=instruction)
                 logger.info("Summary of filtered GitHub Items:")
