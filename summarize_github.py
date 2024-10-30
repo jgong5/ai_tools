@@ -19,7 +19,7 @@ def count_tokens(text, encoding_name='gpt2'):
     """
     logger.info(f"Counting tokens for text: {text[:50]}...")
     encoding = tiktoken.get_encoding(encoding_name)
-    tokens = encoding.encode(text)
+    tokens = encoding.encode(text, disallowed_special=())
     logger.info(f"Token count: {len(tokens)}")
     return len(tokens)
 
@@ -394,7 +394,23 @@ Please generate a blog-style summary of the following list of GitHub issues and 
 
 - Make it more like an article instead of a laundary list. DO NOT make a list.
 
-Below is the detailed information:
+Below is an example excerpt FYI ("..." is used for brevity). Note that you don't have to strictly follow the structure
+but it is the "blog-style" summary we are looking for:
+```
+In recent ... GitHub updates, several enhancements, fixes, and optimizations are being made across ...
+The [PR #...](https://github.com/...)... introduces ... for ..., helping optimize ... Related to efficiency,
+[PR #...](https://github.com/...) ... addresses ..., significantly speeding up data movement.
+
+Enhancements in ... appear frequently. For example, the PR ... expands ... to better handle ...,
+while [PR #...](https://github.com/...) improves ... mechanisms. Constant folding in lifted
+graphs has been updated to support ..., as detailed in [PR #...](https://github.com/...).
+
+In addition to these updates, ...
+
+Finally, various infrastructure updates ...
+```
+
+Below is the detailed information for generating the summary:
 
     """
                 summaries = text_summarize([item.full_str(need_comments=args.dump_comments) for item in filtered_items], instruction=instruction)
