@@ -309,7 +309,7 @@ def main():
     parser.add_argument("--only-prs", action="store_true", help="Dump only pull requests (default: dump both issues and PRs)")
     parser.add_argument("--print-items", action="store_true", help="Print the filtered GitHub items to stdout")
     parser.add_argument("--no-summarize", action="store_true", help="Do not summarize the filtered GitHub items")
-    parser.add_argument("--concat-summaries", action="store_true", help="Do not concatenate summaries")
+    parser.add_argument("--combine-summaries", action="store_true", help="Combine summaries")
     args = parser.parse_args()
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING), format='%(asctime)s - %(levelname)s - %(message)s')
@@ -415,8 +415,8 @@ Below is the detailed information for generating the summary:
 
     """
                 summaries = text_summarize([item.full_str(need_comments=args.dump_comments) for item in filtered_items], instruction=instruction)
-                if args.concat_summaries:
-                    concat_instruction = """
+                if args.combine_summaries:
+                    combine_instruction = """
 Please combine the summaries of the individual GitHub issues and pull requests into a single blog-style summary.
 Requirements:
  - Please first list the IDs for all the mentioned issues or PRs from the summaries.
@@ -426,7 +426,7 @@ Requirements:
 Below are the concatenated summaries:
 
 """
-                    summaries = text_summarize(summaries, instruction=concat_instruction)
+                    summaries = text_summarize(summaries, instruction=combine_instruction)
                 logger.info("Summary of filtered GitHub Items:")
                 for summary in summaries:
                     print(summary)
