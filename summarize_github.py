@@ -419,8 +419,7 @@ Below is the detailed information for generating the summary:
                     combine_instruction = """
 Please combine the summaries of the individual GitHub issues and pull requests into a single blog-style summary.
 Requirements:
- - Please first list the IDs for all the mentioned issues or PRs from the summaries.
- - Then, generate the consolidated summary. You may rearrange the content according to their relevance and re-group them accordingly.
+ - You may rearrange the content according to their relevance and re-group them accordingly.
  - Please retain all the information of issues and PRs. DO NOT miss any. DO NOT miss any. DO NOT miss any.
  
 Below are the concatenated summaries:
