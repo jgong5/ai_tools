@@ -45,12 +45,12 @@ def text_summarize(text_chunks, instruction=None, context=None, separator="\n"):
     if instruction is None:
         instruction = "Summarize the text below:\n\n"
     max_tokens = 96000
-    insturction_num_tokens = count_tokens(instruction)
+    instruction_num_tokens = count_tokens(instruction)
     chunk_num_tokens = [count_tokens(chunk) for chunk in text_chunks]
     end_id = 0
     summaries = []
     while end_id < len(chunk_num_tokens):
-        num_tokens = insturction_num_tokens
+        num_tokens = instruction_num_tokens
         start_id = end_id
         while num_tokens < max_tokens and end_id < len(chunk_num_tokens):
             num_tokens += chunk_num_tokens[end_id]
@@ -58,7 +58,7 @@ def text_summarize(text_chunks, instruction=None, context=None, separator="\n"):
         assert end_id > start_id
         if start_id == end_id - 1:
             logger.warning(f"Chunk {start_id} is too large to fit in the max_tokens limit.")
-            text = text_chunks[start_id][:max_tokens - insturction_num_tokens]
+            text = text_chunks[start_id][:max_tokens - instruction_num_tokens]
         else:
             text = separator.join(text_chunks[start_id:end_id])
         summary = summarize_chunk(client, text, instruction)
@@ -309,6 +309,7 @@ def main():
     parser.add_argument("--only-prs", action="store_true", help="Dump only pull requests (default: dump both issues and PRs)")
     parser.add_argument("--print-items", action="store_true", help="Print the filtered GitHub items to stdout")
     parser.add_argument("--no-summarize", action="store_true", help="Do not summarize the filtered GitHub items")
+    parser.add_argument("--concat-summaries", action="store_true", help="Do not concatenate summaries")
     args = parser.parse_args()
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING), format='%(asctime)s - %(levelname)s - %(message)s')
@@ -414,6 +415,18 @@ Below is the detailed information for generating the summary:
 
     """
                 summaries = text_summarize([item.full_str(need_comments=args.dump_comments) for item in filtered_items], instruction=instruction)
+                if args.concat_summaries:
+                    concat_instruction = """
+Please combine the summaries of the individual GitHub issues and pull requests into a single blog-style summary.
+Requirements:
+ - Please first list the IDs for all the mentioned issues or PRs from the summaries.
+ - Then, generate the consolidated summary. You may rearrange the content according to their relevance and re-group them accordingly.
+ - Please retain all the information of issues and PRs. DO NOT miss any. DO NOT miss any. DO NOT miss any.
+ 
+Below are the concatenated summaries:
+
+"""
+                    summaries = text_summarize(summaries, instruction=concat_instruction)
                 logger.info("Summary of filtered GitHub Items:")
                 for summary in summaries:
                     print(summary)
