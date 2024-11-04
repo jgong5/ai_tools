@@ -13,6 +13,16 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+llm_keys = {
+    "OpenAI" : "OPENAI_API_KEY",
+    "DeepSeek" : "DEEPSEEK_API_KEY"
+}
+
+llm_urls = {
+    "OpenAI" : "https://api.openai.com",
+    "DeepSeek" : "https://api.deepseek.com"
+}
+
 def count_tokens(text, encoding_name='gpt2'):
     """
     Counts the number of tokens in a text string using the specified encoding.
@@ -40,8 +50,8 @@ def summarize_chunk(client, chunk, prompt_instructions="", max_summary_tokens=No
         logger.error(f"An error occurred: {e}")
         return ""
 
-def text_summarize(text_chunks, instruction=None, context=None, separator="\n"):
-    client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'), base_url="https://api.deepseek.com")
+def text_summarize(text_chunks, serving = "DeepSeek", instruction=None, context=None, separator="\n"):
+    client = openai.OpenAI(api_key=os.getenv(llm_keys[serving]), base_url=llm_urls[serving])
     if instruction is None:
         instruction = "Summarize the text below:\n\n"
     max_tokens = 96000
@@ -309,6 +319,7 @@ def main():
     parser.add_argument("--only-prs", action="store_true", help="Dump only pull requests (default: dump both issues and PRs)")
     parser.add_argument("--print-items", action="store_true", help="Print the filtered GitHub items to stdout")
     parser.add_argument("--no-summarize", action="store_true", help="Do not summarize the filtered GitHub items")
+    parser.add_argument("--serving", type=str, choices=["OpenAI", "DeepSeek"], default="DeepSeek", help="Which serving to be called")
     parser.add_argument("--combine-summaries", action="store_true", help="Combine summaries")
     args = parser.parse_args()
 
@@ -387,7 +398,7 @@ Please generate a blog-style summary of the following list of GitHub issues and 
 
 - Be concise, be concise, be concise.
 
-- Describe each issue or PR within two sentences. 
+- Describe each issue or PR within two sentences.
 
 - Mention the "URL" when referring to any issue or PR for easy reference.
 
@@ -414,7 +425,7 @@ Finally, various infrastructure updates ...
 Below is the detailed information for generating the summary:
 
     """
-                summaries = text_summarize([item.full_str(need_comments=args.dump_comments) for item in filtered_items], instruction=instruction)
+                summaries = text_summarize([item.full_str(need_comments=args.dump_comments) for item in filtered_items], serving=args.serving, instruction=instruction)
                 if args.combine_summaries:
                     combine_instruction = """
 Please combine the summaries of the individual GitHub issues and pull requests into a single blog-style summary.
