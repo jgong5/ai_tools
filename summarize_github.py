@@ -15,12 +15,36 @@ logger = logging.getLogger(__name__)
 
 llm_keys = {
     "OpenAI" : "OPENAI_API_KEY",
-    "DeepSeek" : "DEEPSEEK_API_KEY"
+    "DeepSeek" : "DEEPSEEK_API_KEY",
+    "OpenRouter" : "OPENROUTER_API_KEY",
+    "Qianfan": "QIANFAN_API_KEY",
 }
 
 llm_urls = {
     "OpenAI" : "https://api.openai.com",
-    "DeepSeek" : "https://api.deepseek.com"
+    "DeepSeek" : "https://api.deepseek.com",
+    "OpenRouter" : "https://openrouter.ai/api/v1",
+    "Qianfan": "https://qianfan.baidubce.com/v2",
+}
+
+llm_default_models = {
+    "OpenAI" : "gpt-4",
+    "DeepSeek" : "deepseek-chat",
+    "OpenRouter" : "deepseek/deepseek-r1-distill-qwen-32b",
+    "Qianfan": "deepseek-v3",
+}
+
+llm_max_tokens = {
+    "OpenAI/text-davinci-003": 4096,
+    "OpenAI/gpt-4": 4096,
+    "DeepSeek/deepseek-chat": 32000,
+    "OpenRouter/deepseek/deepseek-chat": 100000,
+    "OpenRouter/meta-llama/llama-3.3-70b-instruct": 100000,
+    "OpenRouter/deepseek/deepseek-r1-distill-qwen-1.5b": 60000,
+    "OpenRouter/deepseek/deepseek-r1-distill-qwen-32b": 60000,
+    "OpenRouter/deepseek/deepseek-r1-distill-llama-70b": 60000,
+    "Qianfan/deepseek-v3": 32000,
+    "Qianfan/deepseek-r1": 32000,
 }
 
 def count_tokens(text, encoding_name='gpt2'):
@@ -33,28 +57,33 @@ def count_tokens(text, encoding_name='gpt2'):
     logger.info(f"Token count: {len(tokens)}")
     return len(tokens)
 
-def summarize_chunk(client, chunk, prompt_instructions="", max_summary_tokens=None):
+def summarize_chunk(client, model, chunk, prompt_instructions="", max_summary_tokens=None):
     logger.info(f"Summarizing chunk: {chunk[:50]}...")
     prompt = f"{prompt_instructions}{chunk}"
-    try:
-        response = client.chat.completions.create(
-            model='deepseek-chat',  # You can switch to 'gpt-4' if you have access
-            messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=max_summary_tokens,
-            temperature=0.7,
-        )
-        summary = response.choices[0].message.content.strip()
-        logger.info(f"Summary generated: {summary[:50]}...")
-        return summary
-    except Exception as e:
-        logger.error(f"An error occurred: {e}")
-        return ""
+    # try 3 times on exceptions
+    for i in range(3):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{'role': 'user', 'content': prompt}],
+                max_tokens=max_summary_tokens,
+                temperature=0.7,
+            )
+            summary = response.choices[0].message.content.strip()
+            logger.info(f"Summary generated: {summary[:50]}...")
+            return summary
+        except Exception as e:
+            logger.error(f"An error occurred {i}-th trial: {e}")
+    return ""
 
-def text_summarize(text_chunks, serving = "DeepSeek", instruction=None, context=None, separator="\n"):
+def text_summarize(text_chunks, serving, model=None, instruction=None, context=None, separator="\n"):
     client = openai.OpenAI(api_key=os.getenv(llm_keys[serving]), base_url=llm_urls[serving])
+    if model is None:
+        assert serving in llm_default_models, f"Default model not found for serving {serving}"
+        model = llm_default_models[serving]
     if instruction is None:
         instruction = "Summarize the text below:\n\n"
-    max_tokens = 32000
+    max_tokens = llm_max_tokens[f"{serving}/{model}"]
     instruction_num_tokens = count_tokens(instruction)
     chunk_num_tokens = [count_tokens(chunk) for chunk in text_chunks]
     end_id = 0
@@ -71,7 +100,7 @@ def text_summarize(text_chunks, serving = "DeepSeek", instruction=None, context=
             text = text_chunks[start_id][:max_tokens - instruction_num_tokens]
         else:
             text = separator.join(text_chunks[start_id:end_id])
-        summary = summarize_chunk(client, text, instruction)
+        summary = summarize_chunk(client, model, text, instruction)
         summaries.append(summary)
     return summaries
 
@@ -319,7 +348,8 @@ def main():
     parser.add_argument("--only-prs", action="store_true", help="Dump only pull requests (default: dump both issues and PRs)")
     parser.add_argument("--print-items", action="store_true", help="Print the filtered GitHub items to stdout")
     parser.add_argument("--no-summarize", action="store_true", help="Do not summarize the filtered GitHub items")
-    parser.add_argument("--serving", type=str, choices=["OpenAI", "DeepSeek"], default="DeepSeek", help="Which serving to be called")
+    parser.add_argument("--serving", type=str, choices=["OpenAI", "DeepSeek", "OpenRouter", "Qianfan"], default="OpenRouter", help="Which serving to be called")
+    parser.add_argument("--model", type=str, default=None, help="Model to be used for summarization, None for default model of the serving provider")
     parser.add_argument("--combine-summaries", action="store_true", help="Combine summaries")
     args = parser.parse_args()
 
@@ -425,7 +455,7 @@ Finally, various infrastructure updates ...
 Below is the detailed information for generating the summary:
 
     """
-                summaries = text_summarize([item.full_str(need_comments=args.dump_comments) for item in filtered_items], serving=args.serving, instruction=instruction)
+                summaries = text_summarize([item.full_str(need_comments=args.dump_comments) for item in filtered_items], serving=args.serving, model=args.model, instruction=instruction)
                 if args.combine_summaries:
                     combine_instruction = """
 Please combine the summaries of the individual GitHub issues and pull requests into a single blog-style summary.
@@ -436,7 +466,7 @@ Requirements:
 Below are the concatenated summaries:
 
 """
-                    summaries = text_summarize(summaries, instruction=combine_instruction)
+                    summaries = text_summarize(summaries, serving=args.serving, model=args.model, instruction=combine_instruction)
                 logger.info("Summary of filtered GitHub Items:")
                 for summary in summaries:
                     print(summary)
