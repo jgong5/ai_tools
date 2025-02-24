@@ -18,6 +18,7 @@ llm_keys = {
     "DeepSeek" : "DEEPSEEK_API_KEY",
     "OpenRouter" : "OPENROUTER_API_KEY",
     "Qianfan": "QIANFAN_API_KEY",
+    "Bailian": "BAILIAN_API_KEY",
 }
 
 llm_urls = {
@@ -25,6 +26,7 @@ llm_urls = {
     "DeepSeek" : "https://api.deepseek.com",
     "OpenRouter" : "https://openrouter.ai/api/v1",
     "Qianfan": "https://qianfan.baidubce.com/v2",
+    "Bailian": "https://dashscope.aliyuncs.com/compatible-mode/v1",
 }
 
 llm_default_models = {
@@ -32,9 +34,10 @@ llm_default_models = {
     "DeepSeek" : "deepseek-chat",
     "OpenRouter" : "deepseek/deepseek-r1-distill-qwen-32b",
     "Qianfan": "deepseek-v3",
+    "Bailian": "deepseek-v3",
 }
 
-llm_max_tokens = {
+llm_max_input_tokens = {
     "OpenAI/text-davinci-003": 4096,
     "OpenAI/gpt-4": 4096,
     "DeepSeek/deepseek-chat": 32000,
@@ -45,6 +48,11 @@ llm_max_tokens = {
     "OpenRouter/deepseek/deepseek-r1-distill-llama-70b": 60000,
     "Qianfan/deepseek-v3": 32000,
     "Qianfan/deepseek-r1": 32000,
+    "Bailian/deepseek-v3": 57344,
+}
+
+llm_max_output_tokens = {
+    "Bailian/deepseek-v3": 8192,
 }
 
 def count_tokens(text, encoding_name='gpt2'):
@@ -66,7 +74,7 @@ def summarize_chunk(client, model, chunk, prompt_instructions="", max_summary_to
             response = client.chat.completions.create(
                 model=model,
                 messages=[{'role': 'user', 'content': prompt}],
-                max_tokens=max_summary_tokens,
+                max_tokens=llm_max_output_tokens.get(model, None) if max_summary_tokens is None else max_summary_tokens,
                 temperature=0.7,
             )
             summary = response.choices[0].message.content.strip()
@@ -83,7 +91,7 @@ def text_summarize(text_chunks, serving, model=None, instruction=None, context=N
         model = llm_default_models[serving]
     if instruction is None:
         instruction = "Summarize the text below:\n\n"
-    max_tokens = llm_max_tokens[f"{serving}/{model}"]
+    max_input_tokens = llm_max_input_tokens[f"{serving}/{model}"]
     instruction_num_tokens = count_tokens(instruction)
     chunk_num_tokens = [count_tokens(chunk) for chunk in text_chunks]
     end_id = 0
@@ -91,13 +99,14 @@ def text_summarize(text_chunks, serving, model=None, instruction=None, context=N
     while end_id < len(chunk_num_tokens):
         num_tokens = instruction_num_tokens
         start_id = end_id
-        while num_tokens < max_tokens and end_id < len(chunk_num_tokens):
+        # combine chunks until reaching the max_input_tokens
+        while num_tokens < max_input_tokens and end_id < len(chunk_num_tokens):
             num_tokens += chunk_num_tokens[end_id]
             end_id += 1
         assert end_id > start_id
-        if start_id == end_id - 1:
-            logger.warning(f"Chunk {start_id} is too large to fit in the max_tokens limit.")
-            text = text_chunks[start_id][:max_tokens - instruction_num_tokens]
+        if start_id == end_id - 1 and end_id < len(chunk_num_tokens):
+            logger.warning(f"Chunk {start_id} is too large ({num_tokens}) to fit in the max_tokens ({max_input_tokens}) limit.")
+            text = text_chunks[start_id][:max_input_tokens - instruction_num_tokens]
         else:
             text = separator.join(text_chunks[start_id:end_id])
         summary = summarize_chunk(client, model, text, instruction)
@@ -348,7 +357,7 @@ def main():
     parser.add_argument("--only-prs", action="store_true", help="Dump only pull requests (default: dump both issues and PRs)")
     parser.add_argument("--print-items", action="store_true", help="Print the filtered GitHub items to stdout")
     parser.add_argument("--no-summarize", action="store_true", help="Do not summarize the filtered GitHub items")
-    parser.add_argument("--serving", type=str, choices=["OpenAI", "DeepSeek", "OpenRouter", "Qianfan"], default="OpenRouter", help="Which serving to be called")
+    parser.add_argument("--serving", type=str, choices=["OpenAI", "DeepSeek", "OpenRouter", "Qianfan", "Bailian"], default="Bailian", help="Which serving to be called")
     parser.add_argument("--model", type=str, default=None, help="Model to be used for summarization, None for default model of the serving provider")
     parser.add_argument("--combine-summaries", action="store_true", help="Combine summaries")
     args = parser.parse_args()
