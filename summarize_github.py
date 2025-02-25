@@ -48,7 +48,7 @@ llm_max_input_tokens = {
     "OpenRouter/deepseek/deepseek-r1-distill-llama-70b": 60000,
     "Qianfan/deepseek-v3": 32000,
     "Qianfan/deepseek-r1": 32000,
-    "Bailian/deepseek-v3": 57344,
+    "Bailian/deepseek-v3": 32000,
 }
 
 llm_max_output_tokens = {
@@ -68,8 +68,8 @@ def count_tokens(text, encoding_name='gpt2'):
 def summarize_chunk(client, model, chunk, prompt_instructions="", max_summary_tokens=None):
     logger.info(f"Summarizing chunk: {chunk[:50]}...")
     prompt = f"{prompt_instructions}{chunk}"
-    # try 3 times on exceptions
-    for i in range(3):
+    # try 5 times on exceptions
+    for i in range(5):
         try:
             response = client.chat.completions.create(
                 model=model,
