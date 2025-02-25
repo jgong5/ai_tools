@@ -19,6 +19,7 @@ llm_keys = {
     "OpenRouter" : "OPENROUTER_API_KEY",
     "Qianfan": "QIANFAN_API_KEY",
     "Bailian": "BAILIAN_API_KEY",
+    "Volces": "VOLCES_API_KEY",
 }
 
 llm_urls = {
@@ -27,6 +28,7 @@ llm_urls = {
     "OpenRouter" : "https://openrouter.ai/api/v1",
     "Qianfan": "https://qianfan.baidubce.com/v2",
     "Bailian": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "Volces": "https://ark.cn-beijing.volces.com/api/v3",
 }
 
 llm_default_models = {
@@ -35,6 +37,7 @@ llm_default_models = {
     "OpenRouter" : "deepseek/deepseek-r1-distill-qwen-32b",
     "Qianfan": "deepseek-v3",
     "Bailian": "deepseek-v3",
+    "Volces": "deepseek-v3-241226",
 }
 
 llm_max_input_tokens = {
@@ -49,10 +52,12 @@ llm_max_input_tokens = {
     "Qianfan/deepseek-v3": 32000,
     "Qianfan/deepseek-r1": 32000,
     "Bailian/deepseek-v3": 32000,
+    "Volces/deepseek-v3-241226": 32000,
 }
 
 llm_max_output_tokens = {
     "Bailian/deepseek-v3": 8192,
+    "Volces/deepseek-v3-241226": 16000,
 }
 
 def count_tokens(text, encoding_name='gpt2'):
@@ -357,7 +362,7 @@ def main():
     parser.add_argument("--only-prs", action="store_true", help="Dump only pull requests (default: dump both issues and PRs)")
     parser.add_argument("--print-items", action="store_true", help="Print the filtered GitHub items to stdout")
     parser.add_argument("--no-summarize", action="store_true", help="Do not summarize the filtered GitHub items")
-    parser.add_argument("--serving", type=str, choices=["OpenAI", "DeepSeek", "OpenRouter", "Qianfan", "Bailian"], default="Bailian", help="Which serving to be called")
+    parser.add_argument("--serving", type=str, choices=["OpenAI", "DeepSeek", "OpenRouter", "Qianfan", "Bailian", "Volces"], default="Volces", help="Which serving to be called")
     parser.add_argument("--model", type=str, default=None, help="Model to be used for summarization, None for default model of the serving provider")
     parser.add_argument("--combine-summaries", action="store_true", help="Combine summaries")
     args = parser.parse_args()
